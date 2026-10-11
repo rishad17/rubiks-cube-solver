@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CubeSolver 3D</title>
+  <meta name="description" content="Enter the colors of your scrambled 3×3 Rubik's Cube and follow an animated, step-by-step 3D solution.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='8' height='8' rx='2' fill='%23ffd500'/%3E%3Crect x='12' y='2' width='8' height='8' rx='2' fill='%23c41e3a'/%3E%3Crect x='22' y='2' width='8' height='8' rx='2' fill='%23009e60'/%3E%3Crect x='2' y='12' width='8' height='8' rx='2' fill='%230051ba'/%3E%3Crect x='12' y='12' width='8' height='8' rx='2' fill='%23f4f6f8'/%3E%3Crect x='22' y='12' width='8' height='8' rx='2' fill='%23ff5800'/%3E%3Crect x='2' y='22' width='8' height='8' rx='2' fill='%23009e60'/%3E%3Crect x='12' y='22' width='8' height='8' rx='2' fill='%23ffd500'/%3E%3Crect x='22' y='22' width='8' height='8' rx='2' fill='%23c41e3a'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+
+  <!-- Import map: lets our ES modules write `import ... from 'three'`
+       and load the copies of Three.js stored in the vendor/ folder. -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.js",
+        "three/addons/": "./vendor/three/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div class="file-warning" id="fileWarning" hidden>
+    <strong>This page must be opened through a local web server.</strong>
+    Browsers block ES modules and Web Workers on <code>file://</code> pages. In VS Code, right-click
+    <code>index.html</code> → <em>Open with Live Server</em>, or run <code>npm start</code>. See README.md.
+  </div>
+  <script>
+    // Classic (non-module) script so it still runs when modules are blocked.
+    if (location.protocol === 'file:') document.getElementById('fileWarning').hidden = false;
+  </script>
+  <noscript><div class="file-warning">CubeSolver 3D needs JavaScript enabled.</div></noscript>
+
+  <header class="site-header">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <div>
+        <h1>CubeSolver <span class="accent">3D</span></h1>
+        <p class="tagline">Enter. Solve. Master.</p>
+      </div>
+    </div>
+    <div class="solver-status" id="solverStatus" data-state="loading" title="Kociemba two-phase solver status">
+      <span class="status-dot"></span><span class="status-text">Preparing solver…</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ===================== 3D VIEWER ===================== -->
+    <section class="card viewer-card" aria-label="3D cube">
+      <div class="card-head">
+        <h2>Your cube</h2>
+        <div class="toolbar">
+          <label class="toggle" title="Show the face letters on the center stickers">
+            <input type="checkbox" id="labelsToggle" checked>
+            <span>Labels</span>
+          </label>
+          <button type="button" class="btn btn-ghost btn-sm" id="resetViewBtn" title="Reset camera (V)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4" /></svg>
+            Reset view
+          </button>
+        </div>
+      </div>
+      <div class="viewer" id="viewer">
+        <div class="viewer-badge" id="viewerBadge">Click a sticker to set its color</div>
+      </div>
+      <p class="viewer-hint">Click a sticker to color it · Drag to rotate · Scroll or pinch to zoom · Green front, white top</p>
+    </section>
+
+    <!-- ===================== SOLUTION PLAYER ===================== -->
+    <section class="card solution-card" id="solutionCard" hidden aria-label="Step-by-step solution">
+      <div class="card-head">
+        <div>
+          <h2>Step-by-step solution</h2>
+          <p class="muted small" id="solutionMeta"></p>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" id="copyBtn" title="Copy the move sequence">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
+          <span>Copy</span>
+        </button>
+      </div>
+
+      <div class="current-move" id="currentMovePanel">
+        <div class="move-big" id="moveBig" aria-live="polite">R</div>
+        <div class="move-info">
+          <div class="move-progress-text" id="progressText">Move 1 of 20</div>
+          <div class="move-title" id="moveTitle"></div>
+          <p class="move-detail" id="moveDetail"></p>
+        </div>
+      </div>
+
+      <div class="complete-banner" id="completeBanner" hidden>
+        <div class="complete-icon" aria-hidden="true">✓</div>
+        <div>
+          <strong>Cube solved!</strong>
+          <p id="completeText">All moves done — the 3D cube has been checked and every face is one color.</p>
+        </div>
+      </div>
+
+      <div class="progress" aria-hidden="true"><div class="progress-bar" id="progressBar"></div></div>
+
+      <div class="player-controls">
+        <button type="button" class="btn btn-ghost" id="restartBtn" title="Back to your scramble (Home)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5v14M19 6l-9 6 9 6z"/></svg>
+          <span class="btn-label">Restart</span>
+        </button>
+        <button type="button" class="btn btn-secondary" id="prevBtn" title="Undo the last move (←)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+          <span class="btn-label">Previous</span>
+        </button>
+        <button type="button" class="btn btn-primary btn-next" id="nextBtn" title="Do the next move (→)">
+          <span class="btn-label">Next move</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button type="button" class="btn btn-ghost" id="playBtn" title="Play / pause all moves (Space)">
+          <svg viewBox="0 0 24 24" aria-hidden="true" class="icon-play"><path d="M7 5l12 7-12 7z"/></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true" class="icon-pause"><path d="M8 5v14M16 5v14"/></svg>
+          <span class="btn-label" id="playLabel">Play</span>
+        </button>
+      </div>
+
+      <div class="speed-row">
+        <label for="speedRange">Animation speed</label>
+        <input type="range" id="speedRange" min="120" max="900" step="20" value="420">
+        <span class="muted small">← faster · slower →</span>
+      </div>
+
+      <div class="move-list-head">
+        <span>Full sequence</span>
+        <span class="muted small">Click a move to jump there</span>
+      </div>
+      <ol class="move-list" id="moveList"></ol>
+      <p class="muted small kbd-help">Keyboard: <kbd>←</kbd> previous · <kbd>→</kbd> next · <kbd>Space</kbd> play/pause · <kbd>Home</kbd> restart</p>
+    </section>
+
+    <!-- ===================== COLOR INPUT ===================== -->
+    <section class="card input-card" aria-label="Enter your cube">
+      <div class="card-head">
+        <div>
+          <h2>Enter Your Cube</h2>
+          <p class="muted small">Hold your cube with <b class="c-green">green</b> facing you and <b class="c-white">white</b> on top, then fill in each face.</p>
+        </div>
+        <div class="counter" id="counter" title="Stickers entered (centers are fixed)">
+          <span id="counterValue">6</span><span class="counter-total">/54</span>
+        </div>
+      </div>
+
+      <div class="palette-head">
+        <span class="small">Colors</span>
+        <span class="muted small" id="paletteHint">Click a sticker (here or on the 3D cube) to choose its color — or pick a color below to paint with it.</span>
+      </div>
+      <div class="palette" id="palette" role="toolbar" aria-label="Color legend and paint brushes"></div>
+
+      <div class="net-wrap">
+        <div class="net" id="net"></div>
+      </div>
+
+      <div class="message" id="message" role="status" aria-live="polite" hidden></div>
+
+      <div class="actions-main">
+        <button type="button" class="btn btn-secondary btn-lg" id="validateBtn">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>
+          Validate Cube
+        </button>
+        <button type="button" class="btn btn-primary btn-lg" id="solveBtn" disabled title="Validate your cube first">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3L4 14h7l-1 7 9-11h-7z"/></svg>
+          <span id="solveLabel">Solve Cube</span>
+        </button>
+      </div>
+
+      <div class="actions-secondary">
+        <button type="button" class="btn btn-ghost btn-sm" id="scrambleBtn">🎲 Random scramble</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="solvedBtn">Load Solved Cube</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="resetBtn">Reset Colors</button>
+      </div>
+
+      <details class="scramble-box">
+        <summary>Apply your own scramble sequence (for testing)</summary>
+        <form class="scramble-form" id="scrambleForm">
+          <input type="text" id="scrambleInput" placeholder="e.g. R U R' U' F2 D L'" autocomplete="off" spellcheck="false" aria-label="Scramble moves">
+          <button type="submit" class="btn btn-secondary btn-sm">Apply</button>
+        </form>
+        <p class="muted small">Starts from a solved cube (green front, white top) and applies the moves. Do the same moves on your real cube to practice.</p>
+      </details>
+    </section>
+
+    <!-- ===================== ORIENTATION GUIDE ===================== -->
+    <section class="card guide-card" aria-label="How to hold your cube">
+      <h2>How to hold your cube</h2>
+      <div class="guide-body">
+        <div class="guide-diagram" id="orientationDiagram" aria-hidden="true"></div>
+        <ol class="guide-steps">
+          <li><b>Starting position:</b> <b class="c-green">green</b> center facing you, <b class="c-white">white</b> center on top (so <b class="c-red">red</b> is on your right). Centers never move, so this always works.</li>
+          <li><b>F — Front:</b> enter the green face exactly as you see it, top-left sticker first.</li>
+          <li><b>R, B, L:</b> turn the whole cube a quarter turn to the left so <b class="c-red">red</b> faces you (white still on top) and enter R. Keep turning left for <b class="c-blue">blue</b> (B) and <b class="c-orange">orange</b> (L). Then return to green.</li>
+          <li><b>U — Up:</b> from the starting position, tip the top toward you so white faces you. <b class="c-green">Green</b> is now at the <em>bottom</em> of the grid and <b class="c-blue">blue</b> at the top.</li>
+          <li><b>D — Down:</b> from the starting position, tip the bottom up toward you so yellow faces you. <b class="c-green">Green</b> is now at the <em>top</em> of the grid.</li>
+          <li><b>Double-check:</b> the colored bars around every grid show which neighboring center touches that edge.</li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ===================== NOTATION LEGEND ===================== -->
+    <section class="card legend-card" aria-label="Move notation">
+      <h2>Move notation</h2>
+      <p class="muted small">Each letter is a face. Look straight at that face to judge the direction.</p>
+      <div class="notation-grid">
+        <div class="notation-item"><span class="n-key">R</span><span>Turn that face 90° <b>clockwise</b></span></div>
+        <div class="notation-item"><span class="n-key">R'</span><span>“R prime”: 90° <b>counter-clockwise</b></span></div>
+        <div class="notation-item"><span class="n-key">R2</span><span><b>Half turn</b> (180°), any direction</span></div>
+      </div>
+      <div class="faces-legend">
+        <span><b>U</b> Up · white</span><span><b>D</b> Down · yellow</span>
+        <span><b>F</b> Front · green</span><span><b>B</b> Back · blue</span>
+        <span><b>R</b> Right · red</span><span><b>L</b> Left · orange</span>
+      </div>
+    </section>
+  </main>
+
+  <div class="popover" id="colorPopover" hidden role="dialog" aria-label="Choose a sticker color"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
